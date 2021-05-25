@@ -5,7 +5,7 @@ extern "C" void KernelInitalize(Framebuffer framebuffer, MemoryMap memoryMap, PS
 
     InitalizeConsole(&framebuffer, font);
 
-    const char *string "Hello";
+    const char *string = "Hello";
     print(string);
 
     /*
