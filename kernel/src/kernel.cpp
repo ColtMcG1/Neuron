@@ -1,44 +1,65 @@
 #include "kernel.h"
+#include "graphics/Graphics.h"
+
+KernelData InitalizeMemory()
+{
+    KernelData kernelData;
+
+    GlobalAllocator.Initalize(kernelData.GlobalMemoryMap->Map, kernelData.GlobalMemoryMap->MapSize, kernelData.GlobalMemoryMap->MapDescriptorSize);
+
+    kernelData.GlobalPageTable = (PageTable *)GlobalAllocator.AllocatePage();
+    memset(kernelData.GlobalPageTable, PAGE_SIZE, 0);
+
+    kernelData.GlobalPageTableManager.Initalize(kernelData.GlobalPageTable);
+
+    for (uint64_t i = 0; i < GetMemorySize(kernelData.GlobalMemoryMap->Map, kernelData.GlobalMemoryMap->MapSize, kernelData.GlobalMemoryMap->MapDescriptorSize); i += PAGE_SIZE)
+    {
+        kernelData.GlobalPageTableManager.MapMemory((void *)i, (void *)i);
+    }
+
+    print("Mapped memory\n");
+
+    GlobalAllocator.LockPages((void *)GlobalConsole.Buffer->BaseAddress, GlobalConsole.Buffer->BufferSize / PAGE_SIZE + 1);
+    print("Locked graphics buffer\n");
+
+    uint64_t fb_Base = (uint64_t)GlobalConsole.Buffer->BaseAddress;
+    uint64_t fb_Size = (uint64_t)GlobalConsole.Buffer->BufferSize + 0x1000;
+
+    print("Location : ");
+    print(fb_Base);
+    print("\nSize   : ");
+    print(fb_Size);
+    print("\n");
+
+    for (uint64_t i = fb_Base; i < fb_Base + fb_Size; i += 4096)
+    {
+        GlobalConsole.Clear(0);
+        print(i);
+        kernelData.GlobalPageTableManager.MapMemory((void *)i, (void *)i);
+
+        for (uint64_t j = 0; j < 1000; j++)
+            ;
+    }
+
+    print("Mapped graphics\n");
+
+    asm("mov %0, %%cr3"
+        :
+        : "r"(kernelData.GlobalPageTable));
+        
+
+    return kernelData;
+}
 
 extern "C" void KernelInitalize(Framebuffer framebuffer, MemoryMap memoryMap, PSF1_FONT *font)
 {
+    GlobalConsole.Initalize(&framebuffer, font);
+    print("Console Initalized\n");
 
-    InitalizeConsole(&framebuffer, font);
+    KernelData data = InitalizeMemory();
 
-    const char *string = "Hello";
-    print(string);
+    print("Initalization finished\n");
 
-    /*
-    const char beginning[] = "Beginning\n";
-    print(beginning);
-
-    GlobalAllocator.Initalize(memoryMap.Map, memoryMap.MapSize, memoryMap.MapDescriptorSize);
-
-    PageTable *PML4 = (PageTable *)GlobalAllocator.AllocatePage();
-    memset(PML4, PAGE_SIZE, 0);
-
-    PageTableManager pageManager(PML4);
-
-    const char beginningMapping[] = "Beginning page mapping\n";
-    print(beginningMapping);
-
-    for (uint64_t i = 0; i < GetMemorySize(memoryMap.Map, memoryMap.MapSize, memoryMap.MapDescriptorSize); i += PAGE_SIZE)
-    {
-        pageManager.MapMemory((void *)i, (void *)i);
-    }
-    const char mappedPages[] = "Mapped pages\n";
-    print(mappedPages);
-
-    for (uint64_t* i = (uint64_t*)framebuffer.BaseAddress; i < (uint64_t*)framebuffer.BaseAddress + framebuffer.BufferSize; i += PAGE_SIZE)
-    {
-        pageManager.MapMemory((void *)i, (void *)i);
-    }
-    const char mappedGraphics[] = "Mapped graphics\n";
-    print(mappedGraphics);
-
-    asm("mov %0, %%cr3" : : "r" (PML4));
-
-    const char end[] = "Endding\n";
-    print(end);
-    */
+    while(true)
+        ;
 }

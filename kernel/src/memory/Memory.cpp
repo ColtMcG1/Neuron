@@ -1,18 +1,19 @@
 #include "Memory.h"
+#include "../graphics/Graphics.h"
 
 extern uint64_t _KernelStart;
 extern uint64_t _KernelEnd;
 
 PageFrameAllocator GlobalAllocator;
 
-uint64_t GetMemorySize(EFI_MEMORY_DESCRIPTOR* mMap, uint64_t mMapEntries, uint64_t mMapDescriptorSize)
+uint64_t GetMemorySize(EFI_MEMORY_DESCRIPTOR* mMap, uint64_t mMapSize, uint64_t mMapDescriptorSize)
 {
     static uint64_t memorySize = 0;
     
     if(memorySize > 0)
         return memorySize;
 
-    for(int i = 0; i < mMapEntries; i++)
+    for (int i = 0; i < (mMapSize / mMapDescriptorSize); i++)
     {
         EFI_MEMORY_DESCRIPTOR* descriptor = (EFI_MEMORY_DESCRIPTOR*)((uint64_t)mMap + i * mMapDescriptorSize);
         memorySize += descriptor->NumberOfPages * PAGE_SIZE;
@@ -23,13 +24,9 @@ uint64_t GetMemorySize(EFI_MEMORY_DESCRIPTOR* mMap, uint64_t mMapEntries, uint64
 
 void memset(void *buffer, uint64_t size, uint8_t value)
 {
-    uint8_t* begin = (uint8_t*)buffer;
-    uint8_t* end = (uint8_t*)buffer + size;
-
-    while(begin != end)
+    for (uint64_t i = 0; i < size; i++)
     {
-        *begin = value;
-        ++begin;
+        *(uint8_t *)((uint64_t)buffer + i) = value;
     }
 }
 void memcpy(void *dest, void *src, uint64_t size)
@@ -101,11 +98,7 @@ void PageFrameAllocator::Initalize(EFI_MEMORY_DESCRIPTOR* map, size_t mapSize, s
 void PageFrameAllocator::InitalizeBitmap(void* bufferAddress, size_t bufferSize)
 {
     m_Bitmap = Bitmap((uint8_t*)bufferAddress, bufferSize);
-
-    for(size_t i = 0; i < bufferSize; i++)
-    {
-        *((uint8_t*)bufferAddress + i) = 0;
-    }
+    memset(bufferAddress, bufferSize, 0);
 }
 
 
@@ -266,10 +259,9 @@ const uint64_t &PageMapIndexer::GetP() const
     return m_P;
 }
 
-PageTableManager::PageTableManager(PageTable *PML4Address)
-    : m_PML4Address(PML4Address)
+void PageTableManager::Initalize(PageTable *PML4Address)
 {
-
+    m_PML4Address = PML4Address;
 }
 
 void PageTableManager::MapMemory(void *virtualAddress, void *physicalAddress)
@@ -278,13 +270,13 @@ void PageTableManager::MapMemory(void *virtualAddress, void *physicalAddress)
     PageDirectoryEntry entry;
 
     entry = m_PML4Address->entries[indexer.GetPDP()];
-    PageTable *pageTablePtr;
+    PageTable *pageTableLvl4;
     if(!entry.Present)
     {
-        pageTablePtr = (PageTable *)GlobalAllocator.AllocatePage();
-        memset(pageTablePtr, PAGE_SIZE, 0);
+        pageTableLvl4 = (PageTable *)GlobalAllocator.AllocatePage();
+        memset(pageTableLvl4, PAGE_SIZE, 0);
 
-        entry.Address = (uint64_t)pageTablePtr >> 12;
+        entry.Address = (uint64_t)pageTableLvl4 >> 12;
         entry.Present = true;
         entry.ReadWrite = true;
 
@@ -292,50 +284,50 @@ void PageTableManager::MapMemory(void *virtualAddress, void *physicalAddress)
     }
     else
     {
-        pageTablePtr = (PageTable *)((uint64_t)entry.Address << 12);
+        pageTableLvl4 = (PageTable *)((uint64_t)entry.Address << 12);
     }
 
-    entry = m_PML4Address->entries[indexer.GetPD()];
-    PageTable *pageTableDir;
+    entry = pageTableLvl4->entries[indexer.GetPD()];
+    PageTable *pageTableLvl3;
     if (!entry.Present)
     {
-        pageTableDir = (PageTable *)GlobalAllocator.AllocatePage();
-        memset(pageTableDir, PAGE_SIZE, 0);
+        pageTableLvl3 = (PageTable *)GlobalAllocator.AllocatePage();
+        memset(pageTableLvl3, PAGE_SIZE, 0);
 
-        entry.Address = (uint64_t)pageTableDir >> 12;
+        entry.Address = (uint64_t)pageTableLvl3 >> 12;
         entry.Present = true;
         entry.ReadWrite = true;
 
-        m_PML4Address->entries[indexer.GetPD()] = entry;
+        pageTableLvl4->entries[indexer.GetPD()] = entry;
     }
     else
     {
-        pageTableDir = (PageTable *)((uint64_t)entry.Address << 12);
+        pageTableLvl3 = (PageTable *)((uint64_t)entry.Address << 12);
     }
 
-    entry = m_PML4Address->entries[indexer.GetPT()];
-    PageTable *pageTable;
+    entry = pageTableLvl3->entries[indexer.GetPT()];
+    PageTable *pageTableLvl2;
     if (!entry.Present)
     {
-        pageTable = (PageTable *)GlobalAllocator.AllocatePage();
-        memset(pageTable, PAGE_SIZE, 0);
+        pageTableLvl2 = (PageTable *)GlobalAllocator.AllocatePage();
+        memset(pageTableLvl2, PAGE_SIZE, 0);
 
-        entry.Address = (uint64_t)pageTable >> 12;
+        entry.Address = (uint64_t)pageTableLvl2 >> 12;
         entry.Present = true;
         entry.ReadWrite = true;
 
-        m_PML4Address->entries[indexer.GetPT()] = entry;
+        pageTableLvl3->entries[indexer.GetPT()] = entry;
     }
     else
     {
-        pageTable = (PageTable *)((uint64_t)entry.Address << 12);
+        pageTableLvl2 = (PageTable *)((uint64_t)entry.Address << 12);
     }
 
-    entry = m_PML4Address->entries[indexer.GetP()];
+    entry = pageTableLvl2->entries[indexer.GetP()];
     entry.Address = (uint64_t)physicalAddress >> 12;
     entry.Present = true;
     entry.ReadWrite = true;
-    pageTable->entries[indexer.GetP()] = entry;
+    pageTableLvl2->entries[indexer.GetP()] = entry;
 }
 
 PageTable *&PageTableManager::GetPageTableAddress()

@@ -90,9 +90,9 @@ class PageTableManager
 {
 
 public:
-    PageTableManager(PageTable *PML4Address);
 
-    void MapMemory(void* virtualMemeory, void* physicalMemory);
+    void Initalize(PageTable *PML4Address);
+    void MapMemory(void *virtualMemeory, void *physicalMemory);
 
     PageTable *&GetPageTableAddress();
 
